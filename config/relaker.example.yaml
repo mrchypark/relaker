@@ -1,0 +1,32 @@
+addr: "127.0.0.1:8080"
+# Optional. Prefer RELAKER_GITHUB_SECRET in your environment for real secrets.
+github_secret: ""
+github:
+  receivers:
+    - name: work
+      path: /github/work
+      allow_unsigned: true
+      # Set this for signed GitHub webhooks. If set, the env var must exist.
+      # secret_env: RELAKER_GITHUB_WORK_SECRET
+slack:
+  workspaces:
+    - name: work
+      app_token_env: SLACK_WORK_APP_TOKEN
+      bot_token_env: SLACK_WORK_BOT_TOKEN
+
+rules:
+  - source: github
+    receiver: work
+    event: pull_request
+    actions: [opened, synchronize, reopened]
+    repo: my-org/my-repo
+    base_ref: main
+    labels_any: [ready-for-relaker]
+    run: scripts/on-pr.sh
+
+  - source: slack
+    workspace: work
+    event: app_mention
+    channel: C0123456789
+    text_regex: "^deploy staging"
+    run: scripts/deploy-staging.sh

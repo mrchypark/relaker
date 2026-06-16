@@ -102,6 +102,9 @@ type safeErrorer interface {
 }
 
 func safeError(err error) string {
+	if err == nil {
+		return ""
+	}
 	var safe safeErrorer
 	if errors.As(err, &safe) {
 		return safe.SafeError()

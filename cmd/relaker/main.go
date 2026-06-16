@@ -88,18 +88,30 @@ func run(configPath, addrOverride, root, slackEnvelopePath, slackWorkspace strin
 		serverErr <- nil
 	}()
 
+	var runErr error
 	select {
 	case err := <-slackErr:
-		return err
+		runErr = err
 	case err := <-serverErr:
-		return err
+		runErr = err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		err := server.Shutdown(shutdownCtx)
-		gw.Wait()
-		return err
 	}
+	return finishRun(stop, server, gw, runErr)
+}
+
+type runWaiter interface {
+	Wait()
+}
+
+func finishRun(stop context.CancelFunc, server *http.Server, waiter runWaiter, runErr error) error {
+	stop()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil && runErr == nil {
+		runErr = err
+	}
+	waiter.Wait()
+	return runErr
 }
 
 func registerGitHubHandlers(mux *http.ServeMux, cfg *config.Config, gw *gateway.Gateway) error {

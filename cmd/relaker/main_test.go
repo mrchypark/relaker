@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,6 +22,32 @@ type captureMainSink struct {
 
 func (s *captureMainSink) Handle(event rules.Event) {
 	s.event = event
+}
+
+type waitRecorder struct {
+	called bool
+}
+
+func (w *waitRecorder) Wait() {
+	w.called = true
+}
+
+func TestFinishRunCancelsShutdownWaitsAndPreservesRuntimeError(t *testing.T) {
+	runtimeErr := errors.New("slack failed")
+	stopCalled := false
+	waiter := &waitRecorder{}
+
+	err := finishRun(func() { stopCalled = true }, &http.Server{}, waiter, runtimeErr)
+
+	if !errors.Is(err, runtimeErr) {
+		t.Fatalf("error = %v, want %v", err, runtimeErr)
+	}
+	if !stopCalled {
+		t.Fatal("stop was not called")
+	}
+	if !waiter.called {
+		t.Fatal("wait was not called")
+	}
 }
 
 func TestReceiverSinkAddsReceiver(t *testing.T) {

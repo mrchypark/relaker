@@ -1,5 +1,10 @@
 #!/bin/sh
 set -eu
 
-echo "relaker slack event: ${RELAKER_EVENT} channel=${RELAKER_SLACK_CHANNEL} user=${RELAKER_SLACK_USER}"
-echo "payload: ${EVENT_PAYLOAD_FILE}"
+log="${TMPDIR:-/tmp}/relaker-slack.log"
+printf '%s event=%s channel=%s user=%s payload=%s\n' \
+  "$(date -u +%FT%TZ)" \
+  "${RELAKER_EVENT:-}" \
+  "${RELAKER_SLACK_CHANNEL:-}" \
+  "${RELAKER_SLACK_USER:-}" \
+  "${EVENT_PAYLOAD_FILE:-}" >> "$log"

@@ -85,12 +85,13 @@ func TestProcessorUsesEnvelopeIDWhenEventIDMissing(t *testing.T) {
 	}
 }
 
-func TestHandleSocketModeEventAcksBeforeAsyncDispatch(t *testing.T) {
+func TestHandleSocketModeEventReturnsBeforeBlockingSinkCompletesAfterAck(t *testing.T) {
 	order := make(chan string, 2)
 	acks := &socketAckRecorder{order: order}
-	sink := &eventSinkRecorder{
-		order:  order,
-		events: make(chan rules.Event, 1),
+	sink := &blockingEventSink{
+		started:  make(chan rules.Event, 1),
+		release:  make(chan struct{}),
+		finished: make(chan struct{}, 1),
 	}
 	payload := []byte(`{
 	  "type":"event_callback",
@@ -103,33 +104,137 @@ func TestHandleSocketModeEventAcksBeforeAsyncDispatch(t *testing.T) {
 	  }
 	}`)
 
-	handled, err := slackrecv.HandleSocketModeEvent(context.Background(), socketmode.Event{
-		Type: socketmode.EventTypeEventsAPI,
-		Request: &socketmode.Request{
-			EnvelopeID: "env-live",
-			Payload:    payload,
-		},
-	}, acks, sink)
-	if err != nil {
-		t.Fatalf("HandleSocketModeEvent returned error: %v", err)
-	}
-	if !handled {
-		t.Fatal("HandleSocketModeEvent handled = false")
+	done := make(chan struct {
+		handled bool
+		err     error
+	}, 1)
+	go func() {
+		handled, err := slackrecv.HandleSocketModeEvent(context.Background(), socketmode.Event{
+			Type: socketmode.EventTypeEventsAPI,
+			Request: &socketmode.Request{
+				EnvelopeID: "env-live",
+				Payload:    payload,
+			},
+		}, acks, sink)
+		done <- struct {
+			handled bool
+			err     error
+		}{handled: handled, err: err}
+	}()
+
+	if first := <-order; first != "ack" {
+		t.Fatalf("first operation = %q, want ack", first)
 	}
 	if len(acks.ids) != 1 || acks.ids[0] != "env-live" {
 		t.Fatalf("acks = %#v", acks.ids)
 	}
-	if first := <-order; first != "ack" {
-		t.Fatalf("first operation = %q, want ack", first)
+
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("HandleSocketModeEvent returned error: %v", result.err)
+		}
+		if !result.handled {
+			t.Fatal("HandleSocketModeEvent handled = false")
+		}
+	case <-time.After(100 * time.Millisecond):
+		close(sink.release)
+		<-done
+		t.Fatal("HandleSocketModeEvent did not return before sink.Handle completed")
 	}
 
 	select {
-	case got := <-sink.events:
+	case <-sink.finished:
+		t.Fatal("sink.Handle completed before release")
+	default:
+	}
+	close(sink.release)
+	select {
+	case got := <-sink.started:
 		if got.Source != "slack" || got.Event != "app_mention" || got.ID != "Ev-live" || got.EnvelopeID != "env-live" {
 			t.Fatalf("unexpected event identity: %#v", got)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for async dispatch")
+		t.Fatal("timed out waiting for sink to start")
+	}
+	select {
+	case <-sink.finished:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for sink.Handle to finish")
+	}
+}
+
+func TestHandleSocketModeEventAcksUnsupportedRequest(t *testing.T) {
+	acks := &socketAckRecorder{order: make(chan string, 1)}
+	handled, err := slackrecv.HandleSocketModeEvent(context.Background(), socketmode.Event{
+		Type: socketmode.EventTypeSlashCommand,
+		Request: &socketmode.Request{
+			EnvelopeID: "env-unsupported",
+		},
+	}, acks, &eventSinkRecorder{order: make(chan string, 1), events: make(chan rules.Event, 1)})
+	if err != nil {
+		t.Fatalf("HandleSocketModeEvent returned error: %v", err)
+	}
+	if handled {
+		t.Fatal("unsupported event handled = true")
+	}
+	if len(acks.ids) != 1 || acks.ids[0] != "env-unsupported" {
+		t.Fatalf("acks = %#v", acks.ids)
+	}
+}
+
+func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	for i := 0; i < 16; i++ {
+		sink := &blockingEventSink{
+			started:  make(chan rules.Event, 1),
+			release:  release,
+			finished: make(chan struct{}, 1),
+		}
+		handled, err := slackrecv.HandleSocketModeEvent(context.Background(), socketmode.Event{
+			Type: socketmode.EventTypeEventsAPI,
+			Request: &socketmode.Request{
+				EnvelopeID: "env-fill",
+				Payload: []byte(`{
+				  "type":"event_callback",
+				  "event_id":"Ev-fill",
+				  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
+				}`),
+			},
+		}, &socketAckRecorder{order: make(chan string, 1)}, sink)
+		if err != nil || !handled {
+			t.Fatalf("fill dispatch %d handled=%v err=%v", i, handled, err)
+		}
+		select {
+		case <-sink.started:
+		case <-time.After(time.Second):
+			t.Fatalf("dispatch %d did not start", i)
+		}
+	}
+
+	done := make(chan struct{}, 1)
+	go func() {
+		_, _ = slackrecv.HandleSocketModeEvent(context.Background(), socketmode.Event{
+			Type: socketmode.EventTypeEventsAPI,
+			Request: &socketmode.Request{
+				EnvelopeID: "env-blocked",
+				Payload: []byte(`{
+				  "type":"event_callback",
+				  "event_id":"Ev-blocked",
+				  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
+				}`),
+			},
+		}, &socketAckRecorder{order: make(chan string, 1)}, &eventSinkRecorder{
+			order:  make(chan string, 1),
+			events: make(chan rules.Event, 1),
+		})
+		done <- struct{}{}
+	}()
+	select {
+	case <-done:
+		t.Fatal("dispatch returned while all slots were full")
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -182,20 +287,50 @@ func TestRunSocketModeConsumesClientEventsWithoutNetwork(t *testing.T) {
 	}
 }
 
-func TestRunSocketModeCancelsClientRunContextOnEventError(t *testing.T) {
+func TestRunSocketModeContinuesAfterBadEvent(t *testing.T) {
 	client := &cancellableSocketClient{
-		events:  make(chan socketmode.Event, 1),
+		events:  make(chan socketmode.Event, 2),
 		runDone: make(chan struct{}),
 	}
 	sink := &eventSinkRecorder{
 		order:  make(chan string, 1),
 		events: make(chan rules.Event, 1),
 	}
-	client.events <- socketmode.Event{Type: socketmode.EventTypeEventsAPI}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- slackrecv.RunSocketMode(ctx, client, sink)
+	}()
 
-	err := slackrecv.RunSocketMode(context.Background(), client, sink)
-	if err == nil {
-		t.Fatal("RunSocketMode returned nil error")
+	client.events <- socketmode.Event{Type: socketmode.EventTypeEventsAPI}
+	client.events <- socketmode.Event{
+		Type: socketmode.EventTypeEventsAPI,
+		Request: &socketmode.Request{
+			EnvelopeID: "env-after-bad",
+			Payload: []byte(`{
+			  "type":"event_callback",
+			  "event_id":"Ev-after-bad",
+			  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
+			}`),
+		},
+	}
+
+	select {
+	case got := <-sink.events:
+		if got.ID != "Ev-after-bad" {
+			t.Fatalf("unexpected event after bad payload: %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event after bad payload")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunSocketMode returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for RunSocketMode to stop")
 	}
 	select {
 	case <-client.runDone:
@@ -261,4 +396,16 @@ type eventSinkRecorder struct {
 func (s *eventSinkRecorder) Handle(event rules.Event) {
 	s.order <- "handle"
 	s.events <- event
+}
+
+type blockingEventSink struct {
+	started  chan rules.Event
+	release  chan struct{}
+	finished chan struct{}
+}
+
+func (s *blockingEventSink) Handle(event rules.Event) {
+	s.started <- event
+	<-s.release
+	s.finished <- struct{}{}
 }

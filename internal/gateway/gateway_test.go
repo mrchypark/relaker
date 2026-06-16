@@ -1,7 +1,9 @@
 package gateway_test
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,6 +122,36 @@ func TestGatewayDoesNotRetryCompletedSideEffectsAfterLaterRuleFailure(t *testing
 	got := readFile(t, out)
 	if lines := strings.Split(strings.TrimSpace(got), "\n"); len(lines) != 1 {
 		t.Fatalf("runs = %d, content = %q", len(lines), got)
+	}
+}
+
+func TestGatewayDoesNotLogFailedScriptStderr(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "scripts", "fail.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\necho stderr-secret >&2\nexit 9\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rs := mustRuleSet(t, []rules.Rule{{Source: "github", Event: "issues", Run: "scripts/fail.sh"}})
+	r := mustRunner(t, dir, []string{"scripts/fail.sh"})
+	gw := gateway.New(rs, dedupe.NewMemoryStore(), r)
+
+	var logs bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(old)
+
+	err := gw.Process(context.Background(), rules.Event{Source: "github", Event: "issues", ID: "delivery-1"}, nil)
+	if err == nil {
+		t.Fatal("Process returned nil error")
+	}
+	if !strings.Contains(err.Error(), "stderr-secret") {
+		t.Fatalf("returned error should retain stderr for local debugging: %q", err.Error())
+	}
+	if strings.Contains(logs.String(), "stderr-secret") {
+		t.Fatalf("gateway logs leaked script stderr: %q", logs.String())
 	}
 }
 

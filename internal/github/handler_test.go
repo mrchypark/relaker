@@ -102,6 +102,7 @@ func TestHandlerReturnsUnavailableWhenDispatchSaturated(t *testing.T) {
 
 	for i := 0; i < 16; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
+		req.Header.Set("X-GitHub-Event", "issues")
 		req.Header.Set("X-GitHub-Delivery", "delivery-"+string(rune('a'+i)))
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
@@ -116,6 +117,7 @@ func TestHandlerReturnsUnavailableWhenDispatchSaturated(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "issues")
 	req.Header.Set("X-GitHub-Delivery", "delivery-busy")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -135,6 +137,25 @@ func TestHandlerRejectsMissingDelivery(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %q", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandlerRejectsMissingEvent(t *testing.T) {
+	sink := captureSink{events: make(chan rules.Event, 1)}
+	handler := githubrecv.NewHandler("", sink)
+
+	req := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader([]byte(`{"action":"opened"}`)))
+	req.Header.Set("X-GitHub-Delivery", "delivery-1")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %q", rr.Code, rr.Body.String())
+	}
+	select {
+	case got := <-sink.events:
+		t.Fatalf("unexpected dispatch: %#v", got)
+	default:
 	}
 }
 

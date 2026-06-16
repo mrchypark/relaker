@@ -2,6 +2,7 @@ package dedupe_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/mrchypark/relaker/internal/dedupe"
 )
@@ -40,5 +41,18 @@ func TestMemoryStoreChecksAllKeysBeforeMarking(t *testing.T) {
 	dup, _ = store.CheckAndMark([]string{"slack:event-2"})
 	if dup {
 		t.Fatal("new key was marked even though previous multi-key call was duplicate")
+	}
+}
+
+func TestMemoryStoreExpiresOldKeys(t *testing.T) {
+	store := dedupe.NewMemoryStoreWithTTL(10 * time.Millisecond)
+
+	if dup, key := store.CheckAndMark([]string{"github:delivery-1"}); dup {
+		t.Fatalf("first CheckAndMark duplicate = true, key = %q", key)
+	}
+	time.Sleep(25 * time.Millisecond)
+
+	if dup, key := store.CheckAndMark([]string{"github:delivery-1"}); dup {
+		t.Fatalf("CheckAndMark after TTL duplicate = true, key = %q", key)
 	}
 }

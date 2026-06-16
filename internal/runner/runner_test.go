@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mrchypark/relaker/internal/rules"
 	"github.com/mrchypark/relaker/internal/runner"
@@ -122,7 +123,7 @@ func TestRunnerRejectsSymlinkParentDirectory(t *testing.T) {
 	}
 }
 
-func TestRunnerTruncatesFailedScriptOutput(t *testing.T) {
+func TestRunnerIncludesTruncatedFailedScriptStderr(t *testing.T) {
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "scripts", "fail.sh")
 	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
@@ -130,8 +131,9 @@ func TestRunnerTruncatesFailedScriptOutput(t *testing.T) {
 	}
 	script := `#!/bin/sh
 set -eu
-printf '%s\n' "prefix"
-printf '%s\n' "$SECRET_TEXT"
+printf '%s\n' "stdout-hidden"
+printf '%s\n' "stderr-prefix" >&2
+printf '%s\n' "$SECRET_TEXT" >&2
 exit 9
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
@@ -146,8 +148,14 @@ exit 9
 	if err == nil {
 		t.Fatal("Run returned nil error for failing script")
 	}
+	if !strings.Contains(err.Error(), "stderr-prefix") {
+		t.Fatalf("error did not include stderr snippet: %q", err.Error())
+	}
 	if strings.Contains(err.Error(), strings.Repeat("secret", 300)) {
-		t.Fatalf("error leaked full output: %q", err.Error())
+		t.Fatalf("error leaked full stderr: %q", err.Error())
+	}
+	if strings.Contains(err.Error(), "stdout-hidden") {
+		t.Fatalf("error included stdout: %q", err.Error())
 	}
 }
 
@@ -177,6 +185,51 @@ echo done > "$OUT_PATH"
 	}
 	if _, err := os.Stat(outPath); !os.IsNotExist(err) {
 		t.Fatalf("output exists after canceled run, err=%v", err)
+	}
+}
+
+func TestRunnerCancelsScriptProcessGroup(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "scripts", "spawn-child.sh")
+	markerPath := filepath.Join(dir, "started.txt")
+	childPath := filepath.Join(dir, "child.txt")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+set -eu
+(sleep 0.2; echo child > "$CHILD_PATH") &
+echo started > "$MARKER_PATH"
+sleep 5
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := runner.New(dir, []string{"scripts/spawn-child.sh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- r.Run(ctx, rules.Rule{Run: "scripts/spawn-child.sh"}, rules.Event{}, []string{
+			"MARKER_PATH=" + markerPath,
+			"CHILD_PATH=" + childPath,
+		})
+	}()
+	waitForFile(t, markerPath)
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Run returned nil error for canceled script")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for canceled script")
+	}
+	time.Sleep(400 * time.Millisecond)
+	if _, err := os.Stat(childPath); !os.IsNotExist(err) {
+		t.Fatalf("child output exists after process group cancel, err=%v", err)
 	}
 }
 
@@ -221,4 +274,16 @@ printf '%s|%s\n' "$RELAKER_SOURCE" "$RELAKER_EVENT" > "` + outPath + `"
 	if strings.TrimSpace(string(got)) != "slack|app_mention" {
 		t.Fatalf("output = %q", string(got))
 	}
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
 }

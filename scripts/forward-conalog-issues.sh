@@ -4,6 +4,7 @@ set -eu
 org="${1:-Conalog}"
 url="${RELAKER_GITHUB_URL:-http://127.0.0.1:8080/github/conalog}"
 limit="${RELAKER_GITHUB_REPO_LIMIT:-500}"
+secret="${RELAKER_GITHUB_FORWARD_SECRET:-${RELAKER_GITHUB_CONALOG_SECRET:-}}"
 pids=""
 
 cleanup() {
@@ -25,9 +26,13 @@ if [ -z "$repos" ]; then
 fi
 
 for repo in $repos; do
-  echo "forwarding $repo -> $url"
-  gh webhook forward --repo="$repo" --events=issues --url="$url" &
-  pids="$pids $!"
+	echo "forwarding $repo -> $url"
+	if [ -n "$secret" ]; then
+		gh webhook forward --repo="$repo" --events=issues --secret "$secret" --url="$url" &
+	else
+		gh webhook forward --repo="$repo" --events=issues --url="$url" &
+	fi
+	pids="$pids $!"
 done
 
 wait

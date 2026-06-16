@@ -13,7 +13,10 @@ import (
 	"github.com/mrchypark/relaker/internal/rules"
 )
 
-const scriptTimeout = 10 * time.Minute
+const (
+	scriptTimeout           = 10 * time.Minute
+	failedScriptStderrLimit = 1024
+)
 
 type Runner struct {
 	root    string
@@ -89,15 +92,81 @@ func (r *Runner) Run(ctx context.Context, rule rules.Rule, event rules.Event, ex
 	runCtx, cancel := context.WithTimeout(ctx, scriptTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, path)
+	setProcessGroup(cmd)
+	cmd.Cancel = func() error {
+		return killProcessGroup(cmd)
+	}
 	cmd.Dir = r.root
 	cmd.Env = append(safeParentEnv(), envFor(event, tmpPath)...)
 	cmd.Env = append(cmd.Env, extraEnv...)
+	stderr := &limitedWriter{limit: failedScriptStderrLimit}
 	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("run %q: %w", rule.Run, err)
+		runErr := &ScriptError{Run: rule.Run, Err: err}
+		if snippet := strings.TrimSpace(stderr.String()); snippet != "" {
+			runErr.Stderr = snippet
+			runErr.Truncated = stderr.truncated
+		}
+		return runErr
 	}
 	return nil
+}
+
+type ScriptError struct {
+	Run       string
+	Err       error
+	Stderr    string
+	Truncated bool
+}
+
+func (e *ScriptError) Error() string {
+	if e.Stderr == "" {
+		return e.SafeError()
+	}
+	label := "stderr"
+	if e.Truncated {
+		label = "stderr (truncated)"
+	}
+	return fmt.Sprintf("%s: %s: %s", e.SafeError(), label, e.Stderr)
+}
+
+func (e *ScriptError) SafeError() string {
+	return fmt.Sprintf("run %q: %v", e.Run, e.Err)
+}
+
+func (e *ScriptError) Unwrap() error {
+	return e.Err
+}
+
+type limitedWriter struct {
+	limit     int
+	buf       []byte
+	truncated bool
+}
+
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	if len(w.buf) >= w.limit {
+		if len(p) > 0 {
+			w.truncated = true
+		}
+		return len(p), nil
+	}
+	if len(w.buf) < w.limit {
+		remaining := w.limit - len(w.buf)
+		if remaining > len(p) {
+			remaining = len(p)
+		}
+		w.buf = append(w.buf, p[:remaining]...)
+		if remaining < len(p) {
+			w.truncated = true
+		}
+	}
+	return len(p), nil
+}
+
+func (w *limitedWriter) String() string {
+	return string(w.buf)
 }
 
 func safeParentEnv() []string {

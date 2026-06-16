@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/mrchypark/relaker/internal/rules"
 	slackapi "github.com/slack-go/slack"
@@ -30,6 +31,10 @@ type SocketClient interface {
 	SocketAcker
 }
 
+const maxDispatches = 16
+
+var dispatchSlots = make(chan struct{}, maxDispatches)
+
 func NewProcessor() *Processor {
 	return &Processor{}
 }
@@ -54,6 +59,11 @@ func (p *Processor) ProcessEnvelope(_ context.Context, data []byte, acker Acker)
 
 func HandleSocketModeEvent(_ context.Context, event socketmode.Event, acker SocketAcker, sink EventSink) (bool, error) {
 	if event.Type != socketmode.EventTypeEventsAPI {
+		if event.Request != nil && acker != nil {
+			if err := acker.Ack(*event.Request); err != nil {
+				return false, fmt.Errorf("ack unsupported socket mode envelope: %w", err)
+			}
+		}
 		return false, nil
 	}
 	if event.Request == nil {
@@ -71,7 +81,11 @@ func HandleSocketModeEvent(_ context.Context, event socketmode.Event, acker Sock
 	if !ok {
 		return false, nil
 	}
-	sink.Handle(normalized)
+	dispatchSlots <- struct{}{}
+	go func() {
+		defer func() { <-dispatchSlots }()
+		sink.Handle(normalized)
+	}()
 	return true, nil
 }
 
@@ -94,7 +108,7 @@ func RunSocketMode(ctx context.Context, client SocketClient, sink EventSink) err
 				return nil
 			}
 			if _, err := HandleSocketModeEvent(ctx, event, client, sink); err != nil {
-				return err
+				log.Printf("stage=socket source=slack result=skip error=%q", err)
 			}
 		case err := <-errCh:
 			if ctx.Err() != nil {

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"log"
 
 	"github.com/mrchypark/relaker/internal/rules"
@@ -59,11 +60,23 @@ func (g *Gateway) Process(ctx context.Context, event rules.Event, extraEnv []str
 			if !ranAny {
 				g.dedupe.Unmark(event.DedupeKeys())
 			}
-			g.logger.Printf("stage=execute result=error source=%s event=%s run=%s error=%q", event.Source, event.Event, match.Run, err)
+			g.logger.Printf("stage=execute result=error source=%s event=%s run=%s error=%q", event.Source, event.Event, match.Run, safeError(err))
 			return err
 		}
 		ranAny = true
 		g.logger.Printf("stage=execute result=ok source=%s event=%s run=%s", event.Source, event.Event, match.Run)
 	}
 	return nil
+}
+
+type safeErrorer interface {
+	SafeError() string
+}
+
+func safeError(err error) string {
+	var safe safeErrorer
+	if errors.As(err, &safe) {
+		return safe.SafeError()
+	}
+	return err.Error()
 }

@@ -6,44 +6,57 @@
 
 ```sh
 cp config/relaker.example.yaml config/relaker.yaml
+export RELAKER_GITHUB_WORK_SECRET='local-dev-secret'
 go test ./...
 go run ./cmd/relaker -config config/relaker.yaml
 ```
 
-With no `github.receivers` configured, GitHub webhooks are accepted at:
+The example config registers the signed receiver:
 
 ```text
-POST http://127.0.0.1:8080/github
+POST http://127.0.0.1:8080/github/work
 ```
 
-For a signed GitHub webhook, set a secret in the environment:
+Forward repository webhooks to that receiver with the same secret:
+
+```sh
+gh extension install cli/gh-webhook
+gh webhook forward --repo my-org/my-repo --events pull_request --secret "$RELAKER_GITHUB_WORK_SECRET" --url http://127.0.0.1:8080/github/work
+```
+
+For unsigned local-only GitHub testing, remove `secret_env` from that receiver
+and set `allow_unsigned: true`.
+
+The handler verifies `X-Hub-Signature-256` when a secret is configured, then
+responds `202 Accepted` and processes the event asynchronously.
+
+With no `github.receivers` configured, GitHub webhooks are accepted at
+`/github` and can use the global secret:
 
 ```sh
 export RELAKER_GITHUB_SECRET='local-dev-secret'
-go run ./cmd/relaker -config config/relaker.yaml
-```
-
-For unsigned local-only GitHub testing, set `github_allow_unsigned: true`.
-
-The handler verifies `X-Hub-Signature-256` when a secret is configured, then responds `202 Accepted` and processes the event asynchronously.
-
-With GitHub CLI installed, forward repository webhooks to the local daemon with:
-
-```sh
-gh webhook forward --repo my-org/my-repo --events pull_request --url http://127.0.0.1:8080/github
+gh webhook forward --repo my-org/my-repo --events pull_request --secret "$RELAKER_GITHUB_SECRET" --url http://127.0.0.1:8080/github
 ```
 
 For issue-created notifications, forward the `issues` event and add an `issues`
 rule:
 
 ```sh
-gh webhook forward --repo my-org/my-repo --events issues --url http://127.0.0.1:8080/github/work
+gh webhook forward --repo my-org/my-repo --events issues --secret "$RELAKER_GITHUB_WORK_SECRET" --url http://127.0.0.1:8080/github/work
 ```
 
 To receive issue-created notifications for every repository in an organization,
-omit the rule `repo` filter and forward at the organization level:
+use a dedicated receiver. The catch-all rule below is intentionally broad; keep
+`run` pointed at a notification-only script unless every repo issue should run
+the same local action.
 
 ```yaml
+github:
+  receivers:
+    - name: conalog
+      path: /github/conalog
+      secret_env: RELAKER_GITHUB_CONALOG_SECRET
+
 rules:
   - source: github
     receiver: conalog
@@ -53,13 +66,16 @@ rules:
 ```
 
 ```sh
-gh webhook forward --org Conalog --events issues --url http://127.0.0.1:8080/github/conalog
+export RELAKER_GITHUB_CONALOG_SECRET='local-dev-secret'
+gh webhook forward --org Conalog --events issues --secret "$RELAKER_GITHUB_CONALOG_SECRET" --url http://127.0.0.1:8080/github/conalog
 ```
 
 If org-level webhooks are not available to the current token, forward each
 writable issue-enabled repo instead:
 
 ```sh
+export RELAKER_GITHUB_URL=http://127.0.0.1:8080/github/conalog
+export RELAKER_GITHUB_CONALOG_SECRET='local-dev-secret'
 scripts/forward-conalog-issues.sh Conalog
 ```
 
@@ -75,7 +91,7 @@ github:
 
 ```sh
 export RELAKER_GITHUB_WORK_SECRET='work-secret'
-gh webhook forward --repo my-org/my-repo --events pull_request --url http://127.0.0.1:8080/github/work
+gh webhook forward --repo my-org/my-repo --events pull_request --secret "$RELAKER_GITHUB_WORK_SECRET" --url http://127.0.0.1:8080/github/work
 ```
 
 For unsigned local-only receiver testing, use `allow_unsigned: true` on that receiver instead of `secret_env`.
@@ -119,15 +135,17 @@ Scripts receive a minimal environment only: relaker event variables, `EVENT_PAYL
 
 ## Slack Socket Mode
 
-With no `slack.workspaces` configured, Slack Socket Mode starts automatically when both tokens are present:
+The example config uses a named Slack workspace:
 
 ```sh
-export SLACK_APP_TOKEN='xapp-...'
-export SLACK_BOT_TOKEN='xoxb-...'
+export SLACK_WORK_APP_TOKEN='xapp-...'
+export SLACK_WORK_BOT_TOKEN='xoxb-...'
 go run ./cmd/relaker -config config/relaker.yaml
 ```
 
-If either token is unset, relaker logs that Slack is disabled and continues serving GitHub. Tokens are read from environment variables only and are not part of the YAML config.
+If either token is unset, relaker logs that Slack is disabled and continues
+serving GitHub. Tokens are read from environment variables only and are not
+part of the YAML config.
 
 To run multiple Slack workspaces, configure the env var names per workspace:
 
@@ -144,6 +162,9 @@ export SLACK_WORK_APP_TOKEN='xapp-...'
 export SLACK_WORK_BOT_TOKEN='xoxb-...'
 go run ./cmd/relaker -config config/relaker.yaml
 ```
+
+With no `slack.workspaces` configured, Slack Socket Mode starts automatically
+when `SLACK_APP_TOKEN` and `SLACK_BOT_TOKEN` are present.
 
 Socket Mode envelopes are acked before work is processed through the gateway.
 

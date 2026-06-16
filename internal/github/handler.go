@@ -58,7 +58,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing delivery", http.StatusBadRequest)
 		return
 	}
-	event, err := normalize(body, r.Header.Get("X-GitHub-Event"), delivery)
+	eventName := r.Header.Get("X-GitHub-Event")
+	if eventName == "" {
+		http.Error(w, "missing event", http.StatusBadRequest)
+		return
+	}
+	event, err := normalize(body, eventName, delivery)
 	if err != nil {
 		http.Error(w, "parse payload", http.StatusBadRequest)
 		return

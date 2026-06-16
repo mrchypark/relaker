@@ -269,6 +269,12 @@ func TestExampleConfigScopesSlackRuleToWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load example returned error: %v", err)
 	}
+	if len(cfg.GitHub.Receivers) != 1 || cfg.GitHub.Receivers[0].Path != "/github/work" {
+		t.Fatalf("example github receivers = %#v", cfg.GitHub.Receivers)
+	}
+	if got := cfg.GitHub.Receivers[0].Secret(); got != "github-secret" {
+		t.Fatalf("example github receiver secret = %q", got)
+	}
 	for _, rule := range cfg.Rules {
 		if rule.Source == "slack" && rule.Workspace == "work" {
 			return

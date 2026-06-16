@@ -185,7 +185,6 @@ func TestHandleSocketModeEventAcksUnsupportedRequest(t *testing.T) {
 
 func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 	release := make(chan struct{})
-	defer close(release)
 	for i := 0; i < 16; i++ {
 		sink := &blockingEventSink{
 			started:  make(chan rules.Event, 1),
@@ -236,6 +235,66 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 		t.Fatal("dispatch returned while all slots were full")
 	case <-time.After(50 * time.Millisecond):
 	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for blocked dispatch after release")
+	}
+}
+
+func TestHandleSocketModeEventStopsWaitingForDispatchSlotWhenContextCancels(t *testing.T) {
+	release := make(chan struct{})
+	for i := 0; i < 16; i++ {
+		sink := &blockingEventSink{
+			started:  make(chan rules.Event, 1),
+			release:  release,
+			finished: make(chan struct{}, 1),
+		}
+		handled, err := slackrecv.HandleSocketModeEvent(context.Background(), socketmode.Event{
+			Type: socketmode.EventTypeEventsAPI,
+			Request: &socketmode.Request{
+				EnvelopeID: "env-fill-cancel",
+				Payload: []byte(`{
+				  "type":"event_callback",
+				  "event_id":"Ev-fill-cancel",
+				  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
+				}`),
+			},
+		}, &socketAckRecorder{order: make(chan string, 1)}, sink)
+		if err != nil || !handled {
+			t.Fatalf("fill dispatch %d handled=%v err=%v", i, handled, err)
+		}
+		select {
+		case <-sink.started:
+		case <-time.After(time.Second):
+			t.Fatalf("dispatch %d did not start", i)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	handled, err := slackrecv.HandleSocketModeEvent(ctx, socketmode.Event{
+		Type: socketmode.EventTypeEventsAPI,
+		Request: &socketmode.Request{
+			EnvelopeID: "env-canceled",
+			Payload: []byte(`{
+			  "type":"event_callback",
+			  "event_id":"Ev-canceled",
+			  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
+			}`),
+		},
+	}, &socketAckRecorder{order: make(chan string, 1)}, &eventSinkRecorder{
+		order:  make(chan string, 1),
+		events: make(chan rules.Event, 1),
+	})
+	if err == nil {
+		t.Fatal("HandleSocketModeEvent returned nil error for canceled context")
+	}
+	if handled {
+		t.Fatal("canceled dispatch handled = true")
+	}
+	close(release)
 }
 
 func TestRunSocketModeConsumesClientEventsWithoutNetwork(t *testing.T) {

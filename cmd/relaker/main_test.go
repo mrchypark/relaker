@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mrchypark/relaker/internal/config"
 	"github.com/mrchypark/relaker/internal/dedupe"
 	"github.com/mrchypark/relaker/internal/gateway"
 	"github.com/mrchypark/relaker/internal/rules"
@@ -38,6 +39,16 @@ func TestWorkspaceSinkAddsWorkspace(t *testing.T) {
 
 	if sink.event.Workspace != "work" {
 		t.Fatalf("workspace = %q", sink.event.Workspace)
+	}
+}
+
+func TestStartSlackIfConfiguredBuffersWorkspaceErrors(t *testing.T) {
+	errCh := startSlackIfConfigured(context.Background(), []config.SlackWorkspace{
+		{Name: "work"},
+		{Name: "home"},
+	}, nil)
+	if cap(errCh) != 2 {
+		t.Fatalf("error channel capacity = %d", cap(errCh))
 	}
 }
 

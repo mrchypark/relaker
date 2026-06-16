@@ -8,9 +8,11 @@ import (
 const defaultMemoryStoreTTL = 24 * time.Hour
 
 type MemoryStore struct {
-	mu   sync.Mutex
-	seen map[string]time.Time
-	ttl  time.Duration
+	mu              sync.Mutex
+	seen            map[string]time.Time
+	ttl             time.Duration
+	lastCleanup     time.Time
+	cleanupInterval time.Duration
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -21,9 +23,14 @@ func NewMemoryStoreWithTTL(ttl time.Duration) *MemoryStore {
 	if ttl <= 0 {
 		ttl = defaultMemoryStoreTTL
 	}
+	cleanupInterval := ttl
+	if cleanupInterval > time.Minute {
+		cleanupInterval = time.Minute
+	}
 	return &MemoryStore{
-		seen: make(map[string]time.Time),
-		ttl:  ttl,
+		seen:            make(map[string]time.Time),
+		ttl:             ttl,
+		cleanupInterval: cleanupInterval,
 	}
 }
 
@@ -34,11 +41,19 @@ func (s *MemoryStore) CheckAndMark(keys []string) (bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	s.deleteExpired(now)
+	if now.Sub(s.lastCleanup) >= s.cleanupInterval {
+		s.deleteExpired(now)
+		s.lastCleanup = now
+	}
 	for _, key := range keys {
-		if _, ok := s.seen[key]; ok {
+		expiresAt, ok := s.seen[key]
+		if !ok {
+			continue
+		}
+		if now.Before(expiresAt) {
 			return true, key
 		}
+		delete(s.seen, key)
 	}
 	expiresAt := now.Add(s.ttl)
 	for _, key := range keys {

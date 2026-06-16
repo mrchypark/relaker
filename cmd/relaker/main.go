@@ -117,8 +117,8 @@ func registerGitHubHandlers(mux *http.ServeMux, cfg *config.Config, gw *gateway.
 }
 
 func startSlackIfConfigured(ctx context.Context, workspaces []config.SlackWorkspace, gw *gateway.Gateway) <-chan error {
-	errCh := make(chan error, 1)
 	if len(workspaces) > 0 {
+		errCh := make(chan error, len(workspaces))
 		for _, workspace := range workspaces {
 			appToken, botToken, ok := workspace.Tokens()
 			if !ok {
@@ -137,6 +137,7 @@ func startSlackIfConfigured(ctx context.Context, workspaces []config.SlackWorksp
 		}
 		return errCh
 	}
+	errCh := make(chan error, 1)
 	appToken := os.Getenv("SLACK_APP_TOKEN")
 	botToken := os.Getenv("SLACK_BOT_TOKEN")
 	if appToken == "" || botToken == "" {

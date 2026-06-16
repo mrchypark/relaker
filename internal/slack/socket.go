@@ -57,7 +57,7 @@ func (p *Processor) ProcessEnvelope(_ context.Context, data []byte, acker Acker)
 	return normalizePayload(envelope.Payload, envelope.EnvelopeID, envelope.Payload)
 }
 
-func HandleSocketModeEvent(_ context.Context, event socketmode.Event, acker SocketAcker, sink EventSink) (bool, error) {
+func HandleSocketModeEvent(ctx context.Context, event socketmode.Event, acker SocketAcker, sink EventSink) (bool, error) {
 	if event.Type != socketmode.EventTypeEventsAPI {
 		if event.Request != nil && acker != nil {
 			if err := acker.Ack(*event.Request); err != nil {
@@ -81,7 +81,11 @@ func HandleSocketModeEvent(_ context.Context, event socketmode.Event, acker Sock
 	if !ok {
 		return false, nil
 	}
-	dispatchSlots <- struct{}{}
+	select {
+	case dispatchSlots <- struct{}{}:
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
 	go func() {
 		defer func() { <-dispatchSlots }()
 		sink.Handle(normalized)

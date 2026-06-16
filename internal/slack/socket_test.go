@@ -234,25 +234,26 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 		order:  make(chan string, 1),
 		events: make(chan rules.Event, 1),
 	}
-	done := make(chan struct{}, 1)
-	go func() {
-		_, _ = handler.HandleSocketModeEvent(context.Background(), socketmode.Event{
-			Type: socketmode.EventTypeEventsAPI,
-			Request: &socketmode.Request{
-				EnvelopeID: "env-blocked",
-				Payload: []byte(`{
-				  "type":"event_callback",
-				  "event_id":"Ev-blocked",
-				  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
-				}`),
-			},
-		}, &socketAckRecorder{order: make(chan string, 1)}, busySink)
-		done <- struct{}{}
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("dispatch did not return while all slots were full")
+	busyAcker := &socketAckRecorder{order: make(chan string, 1)}
+	handled, err := handler.HandleSocketModeEvent(context.Background(), socketmode.Event{
+		Type: socketmode.EventTypeEventsAPI,
+		Request: &socketmode.Request{
+			EnvelopeID: "env-blocked",
+			Payload: []byte(`{
+			  "type":"event_callback",
+			  "event_id":"Ev-blocked",
+			  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
+			}`),
+		},
+	}, busyAcker, busySink)
+	if err == nil {
+		t.Fatal("busy dispatch returned nil error")
+	}
+	if handled {
+		t.Fatal("busy dispatch handled = true")
+	}
+	if len(busyAcker.ids) != 0 {
+		t.Fatalf("busy dispatch was acked: %#v", busyAcker.ids)
 	}
 	select {
 	case got := <-busySink.events:

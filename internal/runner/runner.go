@@ -80,8 +80,8 @@ func (r *Runner) Run(ctx context.Context, rule rules.Rule, event rules.Event, ex
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
+	defer tmp.Close()
 	if _, err := tmp.Write(payload); err != nil {
-		tmp.Close()
 		return fmt.Errorf("write payload file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

@@ -89,16 +89,16 @@ func (h *EventHandler) HandleSocketModeEvent(ctx context.Context, event socketmo
 	if event.Request == nil {
 		return false, fmt.Errorf("socket mode event missing request")
 	}
-	if acker != nil {
-		if err := acker.Ack(*event.Request); err != nil {
-			return false, fmt.Errorf("ack socket mode envelope: %w", err)
-		}
-	}
 	normalized, ok, err := normalizePayload(event.Request.Payload, event.Request.EnvelopeID, event.Request.Payload)
 	if err != nil {
 		return false, err
 	}
 	if !ok {
+		if acker != nil {
+			if err := acker.Ack(*event.Request); err != nil {
+				return false, fmt.Errorf("ack unsupported socket mode envelope: %w", err)
+			}
+		}
 		return false, nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -108,7 +108,13 @@ func (h *EventHandler) HandleSocketModeEvent(ctx context.Context, event socketmo
 	case h.dispatchSlots <- struct{}{}:
 	default:
 		log.Printf("stage=dispatch result=skip source=slack event=%s id=%s reason=busy", normalized.Event, normalized.ID)
-		return true, nil
+		return false, fmt.Errorf("dispatch slots full")
+	}
+	if acker != nil {
+		if err := acker.Ack(*event.Request); err != nil {
+			<-h.dispatchSlots
+			return false, fmt.Errorf("ack socket mode envelope: %w", err)
+		}
 	}
 	release := func() { <-h.dispatchSlots }
 	go func() {

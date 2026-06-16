@@ -224,11 +224,11 @@ func (s receiverSink) HandleAsync(event rules.Event, done func()) {
 	}
 	go func() {
 		defer func() {
-			if done != nil {
-				done()
-			}
 			if recovered := recover(); recovered != nil {
 				log.Printf("stage=dispatch result=panic source=github receiver=%s event=%s id=%s panic=%v", s.name, event.Event, event.ID, recovered)
+			}
+			if done != nil {
+				done()
 			}
 		}()
 		s.sink.Handle(event)
@@ -253,11 +253,11 @@ func (s workspaceSink) HandleAsync(event rules.Event, done func()) {
 	}
 	go func() {
 		defer func() {
-			if done != nil {
-				done()
-			}
 			if recovered := recover(); recovered != nil {
 				log.Printf("stage=dispatch result=panic source=slack workspace=%s event=%s id=%s panic=%v", s.name, event.Event, event.ID, recovered)
+			}
+			if done != nil {
+				done()
 			}
 		}()
 		s.sink.Handle(event)

@@ -59,6 +59,37 @@ func TestHandlerVerifiesSignatureAndDispatchesPullRequestAsync(t *testing.T) {
 	}
 }
 
+func TestHandlerNormalizesIssueLabels(t *testing.T) {
+	body := []byte(`{
+	  "action":"opened",
+	  "repository":{"full_name":"my-org/my-repo"},
+	  "issue":{"labels":[{"name":"bug"},{"name":"triage"}]}
+	}`)
+	sink := captureSink{events: make(chan rules.Event, 1)}
+	handler := githubrecv.NewHandler("", sink)
+
+	req := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "issues")
+	req.Header.Set("X-GitHub-Delivery", "delivery-issue")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %q", rr.Code, rr.Body.String())
+	}
+	select {
+	case got := <-sink.events:
+		if got.Event != "issues" || got.Action != "opened" {
+			t.Fatalf("unexpected event identity: %#v", got)
+		}
+		if strings.Join(got.Labels, ",") != "bug,triage" {
+			t.Fatalf("labels = %#v", got.Labels)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for issue dispatch")
+	}
+}
+
 func TestHandlerRejectsInvalidSignature(t *testing.T) {
 	body := []byte(`{"action":"opened"}`)
 	sink := captureSink{events: make(chan rules.Event, 1)}

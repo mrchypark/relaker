@@ -41,6 +41,26 @@ func NewWithContext(ctx context.Context, ruleSet *rules.Set, dedupeStore DedupeS
 func (g *Gateway) Handle(event rules.Event) {
 	g.wg.Add(1)
 	defer g.wg.Done()
+	g.processAndLog(event)
+}
+
+func (g *Gateway) HandleAsync(event rules.Event, done func()) {
+	g.wg.Add(1)
+	go func() {
+		defer g.wg.Done()
+		if done != nil {
+			defer done()
+		}
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				g.logger.Printf("stage=dispatch result=panic source=%s event=%s id=%s panic=%v", event.Source, event.Event, event.ID, recovered)
+			}
+		}()
+		g.processAndLog(event)
+	}()
+}
+
+func (g *Gateway) processAndLog(event rules.Event) {
 	if err := g.Process(g.ctx, event, nil); err != nil {
 		g.logger.Printf("stage=process result=error source=%s event=%s id=%s error=%q", event.Source, event.Event, event.ID, safeError(err))
 	}

@@ -19,6 +19,10 @@ type Sink interface {
 	Handle(rules.Event)
 }
 
+type asyncSink interface {
+	HandleAsync(rules.Event, func())
+}
+
 type Handler struct {
 	secret string
 	sink   Sink
@@ -75,9 +79,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+	release := func() { <-h.sem }
+	if sink, ok := h.sink.(asyncSink); ok {
+		sink.HandleAsync(event, release)
+		return
+	}
 	go func() {
 		defer func() {
-			<-h.sem
+			release()
 			if recovered := recover(); recovered != nil {
 				h.logger.Printf("stage=dispatch result=panic source=github event=%s id=%s panic=%v", event.Event, event.ID, recovered)
 			}
@@ -110,12 +119,22 @@ func normalize(body []byte, eventName, delivery string) (rules.Event, error) {
 				Name string `json:"name"`
 			} `json:"labels"`
 		} `json:"pull_request"`
+		Issue struct {
+			Labels []struct {
+				Name string `json:"name"`
+			} `json:"labels"`
+		} `json:"issue"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return rules.Event{}, fmt.Errorf("decode github payload: %w", err)
 	}
-	labels := make([]string, 0, len(payload.PullRequest.Labels))
+	labels := make([]string, 0, len(payload.PullRequest.Labels)+len(payload.Issue.Labels))
 	for _, label := range payload.PullRequest.Labels {
+		if label.Name != "" {
+			labels = append(labels, label.Name)
+		}
+	}
+	for _, label := range payload.Issue.Labels {
 		if label.Name != "" {
 			labels = append(labels, label.Name)
 		}

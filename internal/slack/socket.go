@@ -21,6 +21,10 @@ type EventSink interface {
 	Handle(rules.Event)
 }
 
+type asyncEventSink interface {
+	HandleAsync(rules.Event, func())
+}
+
 type SocketAcker interface {
 	Ack(socketmode.Request) error
 }
@@ -56,6 +60,9 @@ func (p *Processor) ProcessEnvelope(_ context.Context, data []byte, acker Acker)
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
 		return rules.Event{}, false, fmt.Errorf("decode socket envelope: %w", err)
+	}
+	if envelope.Type != "events_api" {
+		return rules.Event{}, false, nil
 	}
 	if acker != nil && envelope.EnvelopeID != "" {
 		if err := acker.Ack(envelope.EnvelopeID); err != nil {
@@ -99,9 +106,14 @@ func (h *EventHandler) HandleSocketModeEvent(ctx context.Context, event socketmo
 	case <-ctx.Done():
 		return false, ctx.Err()
 	}
+	release := func() { <-h.dispatchSlots }
+	if sink, ok := sink.(asyncEventSink); ok {
+		sink.HandleAsync(normalized, release)
+		return true, nil
+	}
 	go func() {
 		defer func() {
-			<-h.dispatchSlots
+			release()
 			if recovered := recover(); recovered != nil {
 				log.Printf("stage=dispatch result=panic source=slack event=%s id=%s panic=%v", normalized.Event, normalized.ID, recovered)
 			}

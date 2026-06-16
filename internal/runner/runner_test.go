@@ -276,6 +276,40 @@ printf '%s|%s\n' "$RELAKER_SOURCE" "$RELAKER_EVENT" > "` + outPath + `"
 	}
 }
 
+func TestRunnerPassesWindowsSystemEnvironment(t *testing.T) {
+	t.Setenv("SystemRoot", "/windows")
+	t.Setenv("SystemDrive", "C:")
+
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "out.txt")
+	scriptPath := filepath.Join(dir, "scripts", "windows-env.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+set -eu
+printf '%s|%s\n' "$SystemRoot" "$SystemDrive" > "` + outPath + `"
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := runner.New(dir, []string{"scripts/windows-env.sh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.Run(context.Background(), rules.Rule{Run: "scripts/windows-env.sh"}, rules.Event{}, nil); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	got, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != "/windows|C:" {
+		t.Fatalf("output = %q", string(got))
+	}
+}
+
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)

@@ -85,6 +85,23 @@ func TestProcessorUsesEnvelopeIDWhenEventIDMissing(t *testing.T) {
 	}
 }
 
+func TestProcessorSkipsNonEventsAPIEnvelope(t *testing.T) {
+	processor := slackrecv.NewProcessor()
+	acks := &ackRecorder{}
+	envelope := []byte(`{"type":"hello"}`)
+
+	got, ok, err := processor.ProcessEnvelope(context.Background(), envelope, acks)
+	if err != nil {
+		t.Fatalf("ProcessEnvelope returned error: %v", err)
+	}
+	if ok {
+		t.Fatalf("ProcessEnvelope ok = true, event = %#v", got)
+	}
+	if len(acks.ids) != 0 {
+		t.Fatalf("acks = %#v", acks.ids)
+	}
+}
+
 func TestHandleSocketModeEventReturnsBeforeBlockingSinkCompletesAfterAck(t *testing.T) {
 	order := make(chan string, 2)
 	acks := &socketAckRecorder{order: order}

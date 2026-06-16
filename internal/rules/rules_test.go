@@ -73,6 +73,17 @@ func TestRuleSetWithoutReceiverMatchesOldStyleEvents(t *testing.T) {
 	}
 }
 
+func TestRuleSetRejectsUnsupportedSource(t *testing.T) {
+	_, err := rules.NewSet([]rules.Rule{{
+		Source: "githubb",
+		Event:  "issues",
+		Run:    "scripts/on-issue.sh",
+	}})
+	if err == nil {
+		t.Fatal("NewSet returned nil error for unsupported source")
+	}
+}
+
 func TestDedupeKeysIncludeReceiverAndWorkspace(t *testing.T) {
 	githubKey := rules.Event{Source: "github", Receiver: "work", ID: "delivery-1"}.DedupeKeys()[0]
 	slackKey := rules.Event{Source: "slack", Workspace: "work", ID: "Ev1"}.DedupeKeys()[0]

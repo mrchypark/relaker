@@ -202,6 +202,10 @@ type eventSink interface {
 	Handle(rules.Event)
 }
 
+type asyncEventSink interface {
+	HandleAsync(rules.Event, func())
+}
+
 type receiverSink struct {
 	name string
 	sink eventSink
@@ -212,6 +216,25 @@ func (s receiverSink) Handle(event rules.Event) {
 	s.sink.Handle(event)
 }
 
+func (s receiverSink) HandleAsync(event rules.Event, done func()) {
+	event.Receiver = s.name
+	if sink, ok := s.sink.(asyncEventSink); ok {
+		sink.HandleAsync(event, done)
+		return
+	}
+	go func() {
+		defer func() {
+			if done != nil {
+				done()
+			}
+			if recovered := recover(); recovered != nil {
+				log.Printf("stage=dispatch result=panic source=github receiver=%s event=%s id=%s panic=%v", s.name, event.Event, event.ID, recovered)
+			}
+		}()
+		s.sink.Handle(event)
+	}()
+}
+
 type workspaceSink struct {
 	name string
 	sink eventSink
@@ -220,4 +243,23 @@ type workspaceSink struct {
 func (s workspaceSink) Handle(event rules.Event) {
 	event.Workspace = s.name
 	s.sink.Handle(event)
+}
+
+func (s workspaceSink) HandleAsync(event rules.Event, done func()) {
+	event.Workspace = s.name
+	if sink, ok := s.sink.(asyncEventSink); ok {
+		sink.HandleAsync(event, done)
+		return
+	}
+	go func() {
+		defer func() {
+			if done != nil {
+				done()
+			}
+			if recovered := recover(); recovered != nil {
+				log.Printf("stage=dispatch result=panic source=slack workspace=%s event=%s id=%s panic=%v", s.name, event.Event, event.ID, recovered)
+			}
+		}()
+		s.sink.Handle(event)
+	}()
 }

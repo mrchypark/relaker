@@ -86,6 +86,9 @@ func NewSet(ruleList []Rule) (*Set, error) {
 		if rule.Source == "" {
 			return nil, fmt.Errorf("rule %d: source is required", i)
 		}
+		if rule.Source != "github" && rule.Source != "slack" {
+			return nil, fmt.Errorf("rule %d: source %q is not supported", i, rule.Source)
+		}
 		if rule.Event == "" {
 			return nil, fmt.Errorf("rule %d: event is required", i)
 		}

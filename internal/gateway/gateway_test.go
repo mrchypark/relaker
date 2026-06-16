@@ -161,6 +161,41 @@ func TestGatewayDoesNotLogFailedScriptStderr(t *testing.T) {
 	}
 }
 
+func TestGatewayHandleAsyncRegistersBeforeWait(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "runs.txt")
+	scriptPath := filepath.Join(dir, "scripts", "slow.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+set -eu
+sleep 0.1
+printf 'done\n' > "` + out + `"
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rs := mustRuleSet(t, []rules.Rule{{Source: "github", Event: "issues", Run: "scripts/slow.sh"}})
+	r := mustRunner(t, dir, []string{"scripts/slow.sh"})
+	gw := gateway.New(rs, dedupe.NewMemoryStore(), r)
+	doneCalled := make(chan struct{}, 1)
+
+	gw.HandleAsync(rules.Event{Source: "github", Event: "issues", ID: "delivery-async"}, func() {
+		doneCalled <- struct{}{}
+	})
+	gw.Wait()
+
+	select {
+	case <-doneCalled:
+	default:
+		t.Fatal("done callback was not called")
+	}
+	if got := strings.TrimSpace(readFile(t, out)); got != "done" {
+		t.Fatalf("output = %q", got)
+	}
+}
+
 func TestGatewaySkipsSlackRuleMismatchAndExecutesMatch(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "runs.txt")

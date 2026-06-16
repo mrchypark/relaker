@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -189,6 +190,9 @@ echo done > "$OUT_PATH"
 }
 
 func TestRunnerCancelsScriptProcessGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process group cancellation uses Unix process groups")
+	}
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "scripts", "spawn-child.sh")
 	markerPath := filepath.Join(dir, "started.txt")

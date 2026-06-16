@@ -59,15 +59,18 @@ func run(configPath, addrOverride, root, slackEnvelopePath, slackWorkspace strin
 	if err != nil {
 		return fmt.Errorf("build runner: %w", err)
 	}
-	gw := gateway.New(ruleSet, dedupe.NewMemoryStore(), scriptRunner)
-
 	if slackEnvelopePath != "" {
+		gw := gateway.New(ruleSet, dedupe.NewMemoryStore(), scriptRunner)
 		return processSlackEnvelope(context.Background(), slackEnvelopePath, slackWorkspace, gw)
 	}
 
+	return runDaemon(cfg, ruleSet, scriptRunner)
+}
+
+func runDaemon(cfg *config.Config, ruleSet *rules.Set, scriptRunner *runner.Runner) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	gw = gateway.NewWithContext(ctx, ruleSet, dedupe.NewMemoryStore(), scriptRunner)
+	gw := gateway.NewWithContext(ctx, ruleSet, dedupe.NewMemoryStore(), scriptRunner)
 	slackErr, waitSlack := startSlackIfConfigured(ctx, cfg.Slack.Workspaces, gw)
 
 	mux := http.NewServeMux()

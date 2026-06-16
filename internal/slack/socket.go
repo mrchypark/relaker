@@ -172,7 +172,8 @@ func (c socketModeClient) Events() <-chan socketmode.Event {
 }
 
 func (c socketModeClient) Ack(req socketmode.Request) error {
-	return c.client.Ack(req)
+	c.client.Ack(req)
+	return nil
 }
 
 func normalizePayload(payload json.RawMessage, envelopeID string, raw []byte) (rules.Event, bool, error) {

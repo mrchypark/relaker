@@ -159,6 +159,25 @@ func TestHandlerRejectsMissingEvent(t *testing.T) {
 	}
 }
 
+func TestHandlerRecoversDispatchPanic(t *testing.T) {
+	sink := panicSink{started: make(chan struct{}, 1)}
+	handler := githubrecv.NewHandler("", sink)
+	req := httptest.NewRequest(http.MethodPost, "/github", bytes.NewReader([]byte(`{"action":"opened"}`)))
+	req.Header.Set("X-GitHub-Event", "issues")
+	req.Header.Set("X-GitHub-Delivery", "delivery-1")
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %q", rr.Code, rr.Body.String())
+	}
+	select {
+	case <-sink.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for panic sink")
+	}
+}
+
 type blockingSink struct {
 	started chan struct{}
 	release chan struct{}
@@ -167,6 +186,15 @@ type blockingSink struct {
 func (s blockingSink) Handle(rules.Event) {
 	s.started <- struct{}{}
 	<-s.release
+}
+
+type panicSink struct {
+	started chan struct{}
+}
+
+func (s panicSink) Handle(rules.Event) {
+	s.started <- struct{}{}
+	panic("handler panic")
 }
 
 func sign(body []byte, secret string) string {

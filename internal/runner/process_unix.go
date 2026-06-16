@@ -13,7 +13,7 @@ func setProcessGroup(cmd *exec.Cmd) {
 }
 
 func killProcessGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
+	if cmd.Process == nil || cmd.Process.Pid <= 0 {
 		return nil
 	}
 	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)

@@ -96,7 +96,9 @@ func run(configPath, addrOverride, root, slackEnvelopePath, slackWorkspace strin
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return server.Shutdown(shutdownCtx)
+		err := server.Shutdown(shutdownCtx)
+		gw.Wait()
+		return err
 	}
 }
 
@@ -110,7 +112,11 @@ func registerGitHubHandlers(mux *http.ServeMux, cfg *config.Config, gw *gateway.
 		return nil
 	}
 	for _, receiver := range cfg.GitHub.Receivers {
-		mux.Handle(receiver.Path, githubrecv.NewHandler(receiver.Secret(), receiverSink{name: receiver.Name, sink: gw}))
+		secret := receiver.Secret()
+		if secret == "" && !receiver.AllowUnsigned {
+			return fmt.Errorf("github receiver %s: secret_env %s is not set", receiver.Name, receiver.SecretEnv)
+		}
+		mux.Handle(receiver.Path, githubrecv.NewHandler(secret, receiverSink{name: receiver.Name, sink: gw}))
 		log.Printf("stage=start source=github receiver=%s endpoint=%s", receiver.Name, receiver.Path)
 	}
 	return nil

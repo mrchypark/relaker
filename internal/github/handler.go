@@ -76,7 +76,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusAccepted)
 	go func() {
-		defer func() { <-h.sem }()
+		defer func() {
+			<-h.sem
+			if recovered := recover(); recovered != nil {
+				h.logger.Printf("stage=dispatch result=panic source=github event=%s id=%s panic=%v", event.Event, event.ID, recovered)
+			}
+		}()
 		h.sink.Handle(event)
 	}()
 }

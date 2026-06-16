@@ -90,9 +90,6 @@ func Load(path string) (*Config, error) {
 		if receiver.SecretEnv == "" && !receiver.AllowUnsigned {
 			return nil, fmt.Errorf("github receiver %d: secret_env is required unless allow_unsigned is true", i)
 		}
-		if receiver.SecretEnv != "" && os.Getenv(receiver.SecretEnv) == "" {
-			return nil, fmt.Errorf("github receiver %d: secret_env %s is not set", i, receiver.SecretEnv)
-		}
 	}
 	workspaceNames := make(map[string]int, len(cfg.Slack.Workspaces))
 	for i, workspace := range cfg.Slack.Workspaces {

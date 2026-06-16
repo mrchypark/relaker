@@ -33,7 +33,16 @@ type SocketClient interface {
 
 const maxDispatches = 16
 
-var dispatchSlots = make(chan struct{}, maxDispatches)
+type EventHandler struct {
+	dispatchSlots chan struct{}
+}
+
+func NewEventHandler(max int) *EventHandler {
+	if max <= 0 {
+		max = maxDispatches
+	}
+	return &EventHandler{dispatchSlots: make(chan struct{}, max)}
+}
 
 func NewProcessor() *Processor {
 	return &Processor{}
@@ -58,6 +67,10 @@ func (p *Processor) ProcessEnvelope(_ context.Context, data []byte, acker Acker)
 }
 
 func HandleSocketModeEvent(ctx context.Context, event socketmode.Event, acker SocketAcker, sink EventSink) (bool, error) {
+	return NewEventHandler(maxDispatches).HandleSocketModeEvent(ctx, event, acker, sink)
+}
+
+func (h *EventHandler) HandleSocketModeEvent(ctx context.Context, event socketmode.Event, acker SocketAcker, sink EventSink) (bool, error) {
 	if event.Type != socketmode.EventTypeEventsAPI {
 		if event.Request != nil && acker != nil {
 			if err := acker.Ack(*event.Request); err != nil {
@@ -82,12 +95,17 @@ func HandleSocketModeEvent(ctx context.Context, event socketmode.Event, acker So
 		return false, nil
 	}
 	select {
-	case dispatchSlots <- struct{}{}:
+	case h.dispatchSlots <- struct{}{}:
 	case <-ctx.Done():
 		return false, ctx.Err()
 	}
 	go func() {
-		defer func() { <-dispatchSlots }()
+		defer func() {
+			<-h.dispatchSlots
+			if recovered := recover(); recovered != nil {
+				log.Printf("stage=dispatch result=panic source=slack event=%s id=%s panic=%v", normalized.Event, normalized.ID, recovered)
+			}
+		}()
 		sink.Handle(normalized)
 	}()
 	return true, nil
@@ -102,6 +120,7 @@ func RunSocketMode(ctx context.Context, client SocketClient, sink EventSink) err
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	errCh := make(chan error, 1)
+	handler := NewEventHandler(maxDispatches)
 	go func() {
 		errCh <- client.RunContext(runCtx)
 	}()
@@ -111,7 +130,7 @@ func RunSocketMode(ctx context.Context, client SocketClient, sink EventSink) err
 			if !ok {
 				return nil
 			}
-			if _, err := HandleSocketModeEvent(ctx, event, client, sink); err != nil {
+			if _, err := handler.HandleSocketModeEvent(ctx, event, client, sink); err != nil {
 				log.Printf("stage=socket source=slack result=skip error=%q", err)
 			}
 		case err := <-errCh:

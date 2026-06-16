@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,22 @@ func TestStartSlackIfConfiguredBuffersWorkspaceErrors(t *testing.T) {
 	}, nil)
 	if cap(errCh) != 2 {
 		t.Fatalf("error channel capacity = %d", cap(errCh))
+	}
+}
+
+func TestRegisterGitHubHandlersRejectsMissingReceiverSecretEnv(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.GitHub.Receivers = []config.GitHubReceiver{{
+		Name:      "work",
+		Path:      "/github/work",
+		SecretEnv: "RELAKER_GITHUB_WORK_SECRET",
+	}}
+	err := registerGitHubHandlers(http.NewServeMux(), cfg, nil)
+	if err == nil {
+		t.Fatal("registerGitHubHandlers returned nil error")
+	}
+	if !strings.Contains(err.Error(), "RELAKER_GITHUB_WORK_SECRET") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sync"
 
 	"github.com/mrchypark/relaker/internal/rules"
 	"github.com/mrchypark/relaker/internal/runner"
@@ -20,6 +21,7 @@ type Gateway struct {
 	runner *runner.Runner
 	logger *log.Logger
 	ctx    context.Context
+	wg     sync.WaitGroup
 }
 
 func New(ruleSet *rules.Set, dedupeStore DedupeStore, scriptRunner *runner.Runner) *Gateway {
@@ -37,9 +39,15 @@ func NewWithContext(ctx context.Context, ruleSet *rules.Set, dedupeStore DedupeS
 }
 
 func (g *Gateway) Handle(event rules.Event) {
+	g.wg.Add(1)
+	defer g.wg.Done()
 	if err := g.Process(g.ctx, event, nil); err != nil {
-		g.logger.Printf("stage=process result=error source=%s event=%s id=%s error=%q", event.Source, event.Event, event.ID, err)
+		g.logger.Printf("stage=process result=error source=%s event=%s id=%s error=%q", event.Source, event.Event, event.ID, safeError(err))
 	}
+}
+
+func (g *Gateway) Wait() {
+	g.wg.Wait()
 }
 
 func (g *Gateway) Process(ctx context.Context, event rules.Event, extraEnv []string) error {

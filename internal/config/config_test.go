@@ -156,7 +156,7 @@ rules:
 	}
 }
 
-func TestLoadRejectsReceiverSecretEnvMissing(t *testing.T) {
+func TestLoadAllowsReceiverSecretEnvMissingUntilStartup(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "relaker.yaml")
 	err := os.WriteFile(path, []byte(`
@@ -175,8 +175,8 @@ rules:
 		t.Fatal(err)
 	}
 
-	if _, err := config.Load(path); err == nil {
-		t.Fatal("Load returned nil error for missing receiver secret env")
+	if _, err := config.Load(path); err != nil {
+		t.Fatalf("Load returned error for missing receiver secret env: %v", err)
 	}
 }
 

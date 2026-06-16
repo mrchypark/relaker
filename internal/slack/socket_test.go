@@ -184,6 +184,7 @@ func TestHandleSocketModeEventAcksUnsupportedRequest(t *testing.T) {
 }
 
 func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
+	handler := slackrecv.NewEventHandler(16)
 	release := make(chan struct{})
 	for i := 0; i < 16; i++ {
 		sink := &blockingEventSink{
@@ -191,7 +192,7 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 			release:  release,
 			finished: make(chan struct{}, 1),
 		}
-		handled, err := slackrecv.HandleSocketModeEvent(context.Background(), socketmode.Event{
+		handled, err := handler.HandleSocketModeEvent(context.Background(), socketmode.Event{
 			Type: socketmode.EventTypeEventsAPI,
 			Request: &socketmode.Request{
 				EnvelopeID: "env-fill",
@@ -214,7 +215,7 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 
 	done := make(chan struct{}, 1)
 	go func() {
-		_, _ = slackrecv.HandleSocketModeEvent(context.Background(), socketmode.Event{
+		_, _ = handler.HandleSocketModeEvent(context.Background(), socketmode.Event{
 			Type: socketmode.EventTypeEventsAPI,
 			Request: &socketmode.Request{
 				EnvelopeID: "env-blocked",
@@ -244,6 +245,7 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 }
 
 func TestHandleSocketModeEventStopsWaitingForDispatchSlotWhenContextCancels(t *testing.T) {
+	handler := slackrecv.NewEventHandler(16)
 	release := make(chan struct{})
 	for i := 0; i < 16; i++ {
 		sink := &blockingEventSink{
@@ -251,7 +253,7 @@ func TestHandleSocketModeEventStopsWaitingForDispatchSlotWhenContextCancels(t *t
 			release:  release,
 			finished: make(chan struct{}, 1),
 		}
-		handled, err := slackrecv.HandleSocketModeEvent(context.Background(), socketmode.Event{
+		handled, err := handler.HandleSocketModeEvent(context.Background(), socketmode.Event{
 			Type: socketmode.EventTypeEventsAPI,
 			Request: &socketmode.Request{
 				EnvelopeID: "env-fill-cancel",
@@ -274,7 +276,7 @@ func TestHandleSocketModeEventStopsWaitingForDispatchSlotWhenContextCancels(t *t
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	handled, err := slackrecv.HandleSocketModeEvent(ctx, socketmode.Event{
+	handled, err := handler.HandleSocketModeEvent(ctx, socketmode.Event{
 		Type: socketmode.EventTypeEventsAPI,
 		Request: &socketmode.Request{
 			EnvelopeID: "env-canceled",
@@ -295,6 +297,32 @@ func TestHandleSocketModeEventStopsWaitingForDispatchSlotWhenContextCancels(t *t
 		t.Fatal("canceled dispatch handled = true")
 	}
 	close(release)
+}
+
+func TestHandleSocketModeEventRecoversDispatchPanic(t *testing.T) {
+	sink := panicEventSink{started: make(chan rules.Event, 1)}
+	handled, err := slackrecv.NewEventHandler(1).HandleSocketModeEvent(context.Background(), socketmode.Event{
+		Type: socketmode.EventTypeEventsAPI,
+		Request: &socketmode.Request{
+			EnvelopeID: "env-panic",
+			Payload: []byte(`{
+			  "type":"event_callback",
+			  "event_id":"Ev-panic",
+			  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
+			}`),
+		},
+	}, &socketAckRecorder{order: make(chan string, 1)}, sink)
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	select {
+	case got := <-sink.started:
+		if got.ID != "Ev-panic" {
+			t.Fatalf("event = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for panic sink")
+	}
 }
 
 func TestRunSocketModeConsumesClientEventsWithoutNetwork(t *testing.T) {
@@ -467,4 +495,13 @@ func (s *blockingEventSink) Handle(event rules.Event) {
 	s.started <- event
 	<-s.release
 	s.finished <- struct{}{}
+}
+
+type panicEventSink struct {
+	started chan rules.Event
+}
+
+func (s panicEventSink) Handle(event rules.Event) {
+	s.started <- event
+	panic("handler panic")
 }

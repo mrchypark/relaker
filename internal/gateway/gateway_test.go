@@ -153,6 +153,12 @@ func TestGatewayDoesNotLogFailedScriptStderr(t *testing.T) {
 	if strings.Contains(logs.String(), "stderr-secret") {
 		t.Fatalf("gateway logs leaked script stderr: %q", logs.String())
 	}
+
+	logs.Reset()
+	gw.Handle(rules.Event{Source: "github", Event: "issues", ID: "delivery-2"})
+	if strings.Contains(logs.String(), "stderr-secret") {
+		t.Fatalf("gateway Handle logs leaked script stderr: %q", logs.String())
+	}
 }
 
 func TestGatewaySkipsSlackRuleMismatchAndExecutesMatch(t *testing.T) {

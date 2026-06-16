@@ -277,6 +277,8 @@ printf '%s|%s\n' "$RELAKER_SOURCE" "$RELAKER_EVENT" > "` + outPath + `"
 }
 
 func TestRunnerPassesWindowsSystemEnvironment(t *testing.T) {
+	t.Setenv("TEMP", "/tmp/windows-temp")
+	t.Setenv("TMP", "/tmp/windows-tmp")
 	t.Setenv("SystemRoot", "/windows")
 	t.Setenv("SystemDrive", "C:")
 
@@ -288,7 +290,7 @@ func TestRunnerPassesWindowsSystemEnvironment(t *testing.T) {
 	}
 	script := `#!/bin/sh
 set -eu
-printf '%s|%s\n' "$SystemRoot" "$SystemDrive" > "` + outPath + `"
+printf '%s|%s|%s|%s\n' "$TEMP" "$TMP" "$SystemRoot" "$SystemDrive" > "` + outPath + `"
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -305,7 +307,7 @@ printf '%s|%s\n' "$SystemRoot" "$SystemDrive" > "` + outPath + `"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(string(got)) != "/windows|C:" {
+	if strings.TrimSpace(string(got)) != "/tmp/windows-temp|/tmp/windows-tmp|/windows|C:" {
 		t.Fatalf("output = %q", string(got))
 	}
 }

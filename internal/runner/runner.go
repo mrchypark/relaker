@@ -170,7 +170,7 @@ func (w *limitedWriter) String() string {
 }
 
 func safeParentEnv() []string {
-	names := []string{"PATH", "HOME", "TMPDIR", "SHELL", "SystemRoot", "SystemDrive"}
+	names := []string{"PATH", "HOME", "TMPDIR", "TEMP", "TMP", "SHELL", "SystemRoot", "SystemDrive"}
 	env := make([]string, 0, len(names))
 	for _, name := range names {
 		if value, ok := os.LookupEnv(name); ok {

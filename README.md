@@ -40,6 +40,29 @@ rule:
 gh webhook forward --repo my-org/my-repo --events issues --url http://127.0.0.1:8080/github/work
 ```
 
+To receive issue-created notifications for every repository in an organization,
+omit the rule `repo` filter and forward at the organization level:
+
+```yaml
+rules:
+  - source: github
+    receiver: conalog
+    event: issues
+    actions: [opened]
+    run: scripts/on-issue.sh
+```
+
+```sh
+gh webhook forward --org Conalog --events issues --url http://127.0.0.1:8080/github/conalog
+```
+
+If org-level webhooks are not available to the current token, forward each
+writable issue-enabled repo instead:
+
+```sh
+scripts/forward-conalog-issues.sh Conalog
+```
+
 To run multiple GitHub receivers, configure one path per receiver and put secrets in the named env vars:
 
 ```yaml

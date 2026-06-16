@@ -10,5 +10,9 @@ printf '%s repo=%s action=%s delivery=%s payload=%s\n' \
   "${EVENT_PAYLOAD_FILE:-}" >> "$log"
 
 if command -v osascript >/dev/null 2>&1; then
-  osascript -e 'display notification "GitHub issue opened" with title "relaker"'
+  osascript <<'OSA'
+set repoName to system attribute "RELAKER_REPO"
+if repoName is "" then set repoName to "GitHub"
+display notification repoName with title "relaker issue opened"
+OSA
 fi

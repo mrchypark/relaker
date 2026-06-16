@@ -86,10 +86,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		defer func() {
-			release()
 			if recovered := recover(); recovered != nil {
 				h.logger.Printf("stage=dispatch result=panic source=github event=%s id=%s panic=%v", event.Event, event.ID, recovered)
 			}
+			release()
 		}()
 		h.sink.Handle(event)
 	}()

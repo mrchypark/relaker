@@ -123,10 +123,10 @@ func (h *EventHandler) HandleSocketModeEvent(ctx context.Context, event socketmo
 	}
 	go func() {
 		defer func() {
-			release()
 			if recovered := recover(); recovered != nil {
 				log.Printf("stage=dispatch result=panic source=slack event=%s id=%s panic=%v", normalized.Event, normalized.ID, recovered)
 			}
+			release()
 		}()
 		sink.Handle(normalized)
 	}()

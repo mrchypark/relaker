@@ -8,9 +8,11 @@ secret="${RELAKER_GITHUB_FORWARD_SECRET:-${RELAKER_GITHUB_CONALOG_SECRET:-}}"
 pids=""
 
 cleanup() {
-  for pid in $pids; do
-    kill "$pid" 2>/dev/null || true
-  done
+  if [ -n "$pids" ]; then
+    for pid in $pids; do
+      kill "$pid" 2>/dev/null || true
+    done
+  fi
 }
 trap cleanup INT TERM EXIT
 

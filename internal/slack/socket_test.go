@@ -230,7 +230,7 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 		}
 	}
 
-	blockedSink := &eventSinkRecorder{
+	busySink := &eventSinkRecorder{
 		order:  make(chan string, 1),
 		events: make(chan rules.Event, 1),
 	}
@@ -246,7 +246,7 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 				  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
 				}`),
 			},
-		}, &socketAckRecorder{order: make(chan string, 1)}, blockedSink)
+		}, &socketAckRecorder{order: make(chan string, 1)}, busySink)
 		done <- struct{}{}
 	}()
 	select {
@@ -255,18 +255,15 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 		t.Fatal("dispatch did not return while all slots were full")
 	}
 	select {
-	case got := <-blockedSink.events:
-		t.Fatalf("blocked sink handled before slot released: %#v", got)
+	case got := <-busySink.events:
+		t.Fatalf("busy sink handled despite full dispatch slots: %#v", got)
 	default:
 	}
 	close(release)
 	select {
-	case got := <-blockedSink.events:
-		if got.ID != "Ev-blocked" {
-			t.Fatalf("blocked event = %#v", got)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for blocked dispatch after release")
+	case got := <-busySink.events:
+		t.Fatalf("busy sink handled after slot release: %#v", got)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

@@ -3,7 +3,7 @@ set -eu
 
 log="${TMPDIR:-/tmp}/relaker-issues.log"
 printf '%s repo=%s action=%s delivery=%s payload=%s\n' \
-  "$(date -u +%FT%TZ)" \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   "${RELAKER_REPO:-}" \
   "${RELAKER_ACTION:-}" \
   "${RELAKER_ID:-}" \

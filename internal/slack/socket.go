@@ -104,13 +104,14 @@ func (h *EventHandler) HandleSocketModeEvent(ctx context.Context, event socketmo
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
+	select {
+	case h.dispatchSlots <- struct{}{}:
+	default:
+		log.Printf("stage=dispatch result=skip source=slack event=%s id=%s reason=busy", normalized.Event, normalized.ID)
+		return true, nil
+	}
 	release := func() { <-h.dispatchSlots }
 	go func() {
-		select {
-		case h.dispatchSlots <- struct{}{}:
-		case <-ctx.Done():
-			return
-		}
 		if sink, ok := sink.(asyncEventSink); ok {
 			sink.HandleAsync(normalized, release)
 			return

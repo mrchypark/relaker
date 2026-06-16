@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,7 +99,7 @@ func (r *Runner) Run(ctx context.Context, rule rules.Rule, event rules.Event, ex
 	cmd.Env = append(safeParentEnv(), envFor(event, tmpPath)...)
 	cmd.Env = append(cmd.Env, extraEnv...)
 	stderr := &limitedWriter{limit: failedScriptStderrLimit}
-	cmd.Stdout = io.Discard
+	cmd.Stdout = os.Stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		runErr := &ScriptError{Run: rule.Run, Err: err}

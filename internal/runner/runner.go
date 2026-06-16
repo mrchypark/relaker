@@ -57,7 +57,7 @@ func (r *Runner) Run(ctx context.Context, rule rules.Rule, event rules.Event, ex
 		return fmt.Errorf("resolve script: %w", err)
 	}
 	rel, err := filepath.Rel(resolvedRoot, resolvedPath)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") || filepath.IsAbs(rel) {
+	if err != nil || isParentPath(rel) || filepath.IsAbs(rel) {
 		return fmt.Errorf("script %q resolves outside root", rule.Run)
 	}
 	info, err := os.Lstat(path)
@@ -188,10 +188,17 @@ func cleanLocal(path string) (string, error) {
 		return "", fmt.Errorf("absolute paths are not allowed")
 	}
 	clean := filepath.Clean(path)
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+	if clean == "." || isParentPath(clean) {
 		return "", fmt.Errorf("path must stay under the relaker root")
 	}
 	return clean, nil
+}
+
+func isParentPath(path string) bool {
+	return path == ".." ||
+		strings.HasPrefix(path, ".."+string(filepath.Separator)) ||
+		strings.HasPrefix(path, "../") ||
+		strings.HasPrefix(path, `..\`)
 }
 
 func envFor(event rules.Event, payloadPath string) []string {

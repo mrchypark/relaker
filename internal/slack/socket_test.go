@@ -230,6 +230,10 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 		}
 	}
 
+	blockedSink := &eventSinkRecorder{
+		order:  make(chan string, 1),
+		events: make(chan rules.Event, 1),
+	}
 	done := make(chan struct{}, 1)
 	go func() {
 		_, _ = handler.HandleSocketModeEvent(context.Background(), socketmode.Event{
@@ -242,20 +246,25 @@ func TestHandleSocketModeEventAppliesDispatchBackpressure(t *testing.T) {
 				  "event":{"type":"app_mention","channel":"C1","user":"U1","text":"deploy staging"}
 				}`),
 			},
-		}, &socketAckRecorder{order: make(chan string, 1)}, &eventSinkRecorder{
-			order:  make(chan string, 1),
-			events: make(chan rules.Event, 1),
-		})
+		}, &socketAckRecorder{order: make(chan string, 1)}, blockedSink)
 		done <- struct{}{}
 	}()
 	select {
 	case <-done:
-		t.Fatal("dispatch returned while all slots were full")
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(time.Second):
+		t.Fatal("dispatch did not return while all slots were full")
+	}
+	select {
+	case got := <-blockedSink.events:
+		t.Fatalf("blocked sink handled before slot released: %#v", got)
+	default:
 	}
 	close(release)
 	select {
-	case <-done:
+	case got := <-blockedSink.events:
+		if got.ID != "Ev-blocked" {
+			t.Fatalf("blocked event = %#v", got)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for blocked dispatch after release")
 	}

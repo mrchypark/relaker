@@ -101,17 +101,20 @@ func (h *EventHandler) HandleSocketModeEvent(ctx context.Context, event socketmo
 	if !ok {
 		return false, nil
 	}
-	select {
-	case h.dispatchSlots <- struct{}{}:
-	case <-ctx.Done():
-		return false, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 	release := func() { <-h.dispatchSlots }
-	if sink, ok := sink.(asyncEventSink); ok {
-		sink.HandleAsync(normalized, release)
-		return true, nil
-	}
 	go func() {
+		select {
+		case h.dispatchSlots <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+		if sink, ok := sink.(asyncEventSink); ok {
+			sink.HandleAsync(normalized, release)
+			return
+		}
 		defer func() {
 			release()
 			if recovered := recover(); recovered != nil {

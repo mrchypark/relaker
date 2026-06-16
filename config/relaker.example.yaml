@@ -24,6 +24,13 @@ rules:
     labels_any: [ready-for-relaker]
     run: scripts/on-pr.sh
 
+  - source: github
+    receiver: work
+    event: issues
+    actions: [opened]
+    repo: my-org/my-repo
+    run: scripts/on-issue.sh
+
   - source: slack
     workspace: work
     event: app_mention

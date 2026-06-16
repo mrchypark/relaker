@@ -33,6 +33,13 @@ With GitHub CLI installed, forward repository webhooks to the local daemon with:
 gh webhook forward --repo my-org/my-repo --events pull_request --url http://127.0.0.1:8080/github
 ```
 
+For issue-created notifications, forward the `issues` event and add an `issues`
+rule:
+
+```sh
+gh webhook forward --repo my-org/my-repo --events issues --url http://127.0.0.1:8080/github/work
+```
+
 To run multiple GitHub receivers, configure one path per receiver and put secrets in the named env vars:
 
 ```yaml
@@ -64,6 +71,12 @@ rules:
     base_ref: main
     labels_any: [ready-for-relaker]
     run: scripts/on-pr.sh
+  - source: github
+    receiver: work
+    event: issues
+    actions: [opened]
+    repo: my-org/my-repo
+    run: scripts/on-issue.sh
   - source: slack
     workspace: work
     event: app_mention

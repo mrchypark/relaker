@@ -77,6 +77,9 @@ func run(configPath, addrOverride, root, slackEnvelopePath, slackWorkspace strin
 		Addr:              cfg.Addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	serverErr := make(chan error, 1)
 	go func() {

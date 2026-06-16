@@ -37,13 +37,18 @@ func TestFinishRunCancelsShutdownWaitsAndPreservesRuntimeError(t *testing.T) {
 	stopCalled := false
 	waiter := &waitRecorder{}
 
-	err := finishRun(func() { stopCalled = true }, &http.Server{}, waiter, runtimeErr)
+	componentsWaited := false
+
+	err := finishRun(func() { stopCalled = true }, &http.Server{}, func() { componentsWaited = true }, waiter, runtimeErr)
 
 	if !errors.Is(err, runtimeErr) {
 		t.Fatalf("error = %v, want %v", err, runtimeErr)
 	}
 	if !stopCalled {
 		t.Fatal("stop was not called")
+	}
+	if !componentsWaited {
+		t.Fatal("component wait was not called")
 	}
 	if !waiter.called {
 		t.Fatal("wait was not called")
@@ -71,10 +76,11 @@ func TestWorkspaceSinkAddsWorkspace(t *testing.T) {
 }
 
 func TestStartSlackIfConfiguredBuffersWorkspaceErrors(t *testing.T) {
-	errCh := startSlackIfConfigured(context.Background(), []config.SlackWorkspace{
+	errCh, waitSlack := startSlackIfConfigured(context.Background(), []config.SlackWorkspace{
 		{Name: "work"},
 		{Name: "home"},
 	}, nil)
+	waitSlack()
 	if cap(errCh) != 2 {
 		t.Fatalf("error channel capacity = %d", cap(errCh))
 	}

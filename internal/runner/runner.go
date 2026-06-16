@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	scriptTimeout           = 10 * time.Minute
-	failedScriptStderrLimit = 1024
+	scriptTimeout           = 2 * time.Minute
+	failedScriptOutputLimit = 1024
 )
 
 type Runner struct {
@@ -98,14 +98,19 @@ func (r *Runner) Run(ctx context.Context, rule rules.Rule, event rules.Event, ex
 	cmd.Dir = r.root
 	cmd.Env = append(safeParentEnv(), envFor(event, tmpPath)...)
 	cmd.Env = append(cmd.Env, extraEnv...)
-	stderr := &limitedWriter{limit: failedScriptStderrLimit}
-	cmd.Stdout = os.Stdout
+	stdout := &limitedWriter{limit: failedScriptOutputLimit}
+	stderr := &limitedWriter{limit: failedScriptOutputLimit}
+	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		runErr := &ScriptError{Run: rule.Run, Err: err}
+		if snippet := strings.TrimSpace(stdout.String()); snippet != "" {
+			runErr.Stdout = snippet
+			runErr.StdoutTruncated = stdout.truncated
+		}
 		if snippet := strings.TrimSpace(stderr.String()); snippet != "" {
 			runErr.Stderr = snippet
-			runErr.Truncated = stderr.truncated
+			runErr.StderrTruncated = stderr.truncated
 		}
 		return runErr
 	}
@@ -113,21 +118,31 @@ func (r *Runner) Run(ctx context.Context, rule rules.Rule, event rules.Event, ex
 }
 
 type ScriptError struct {
-	Run       string
-	Err       error
-	Stderr    string
-	Truncated bool
+	Run             string
+	Err             error
+	Stdout          string
+	Stderr          string
+	StdoutTruncated bool
+	StderrTruncated bool
 }
 
 func (e *ScriptError) Error() string {
-	if e.Stderr == "" {
-		return e.SafeError()
+	parts := []string{e.SafeError()}
+	if e.Stdout != "" {
+		label := "stdout"
+		if e.StdoutTruncated {
+			label = "stdout (truncated)"
+		}
+		parts = append(parts, fmt.Sprintf("%s: %s", label, e.Stdout))
 	}
-	label := "stderr"
-	if e.Truncated {
-		label = "stderr (truncated)"
+	if e.Stderr != "" {
+		label := "stderr"
+		if e.StderrTruncated {
+			label = "stderr (truncated)"
+		}
+		parts = append(parts, fmt.Sprintf("%s: %s", label, e.Stderr))
 	}
-	return fmt.Sprintf("%s: %s: %s", e.SafeError(), label, e.Stderr)
+	return strings.Join(parts, "; ")
 }
 
 func (e *ScriptError) SafeError() string {

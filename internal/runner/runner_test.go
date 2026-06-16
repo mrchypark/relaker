@@ -155,8 +155,8 @@ exit 9
 	if strings.Contains(err.Error(), strings.Repeat("secret", 300)) {
 		t.Fatalf("error leaked full stderr: %q", err.Error())
 	}
-	if strings.Contains(err.Error(), "stdout-hidden") {
-		t.Fatalf("error included stdout: %q", err.Error())
+	if !strings.Contains(err.Error(), "stdout-hidden") {
+		t.Fatalf("error did not include stdout snippet: %q", err.Error())
 	}
 }
 

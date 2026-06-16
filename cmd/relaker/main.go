@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -67,7 +68,7 @@ func run(configPath, addrOverride, root, slackEnvelopePath, slackWorkspace strin
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	gw = gateway.NewWithContext(ctx, ruleSet, dedupe.NewMemoryStore(), scriptRunner)
-	slackErr := startSlackIfConfigured(ctx, cfg.Slack.Workspaces, gw)
+	slackErr, waitSlack := startSlackIfConfigured(ctx, cfg.Slack.Workspaces, gw)
 
 	mux := http.NewServeMux()
 	if err := registerGitHubHandlers(mux, cfg, gw); err != nil {
@@ -99,19 +100,22 @@ func run(configPath, addrOverride, root, slackEnvelopePath, slackWorkspace strin
 		runErr = err
 	case <-ctx.Done():
 	}
-	return finishRun(stop, server, gw, runErr)
+	return finishRun(stop, server, waitSlack, gw, runErr)
 }
 
 type runWaiter interface {
 	Wait()
 }
 
-func finishRun(stop context.CancelFunc, server *http.Server, waiter runWaiter, runErr error) error {
+func finishRun(stop context.CancelFunc, server *http.Server, waitComponents func(), waiter runWaiter, runErr error) error {
 	stop()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil && runErr == nil {
 		runErr = err
+	}
+	if waitComponents != nil {
+		waitComponents()
 	}
 	waiter.Wait()
 	return runErr
@@ -137,7 +141,9 @@ func registerGitHubHandlers(mux *http.ServeMux, cfg *config.Config, gw *gateway.
 	return nil
 }
 
-func startSlackIfConfigured(ctx context.Context, workspaces []config.SlackWorkspace, gw *gateway.Gateway) <-chan error {
+func startSlackIfConfigured(ctx context.Context, workspaces []config.SlackWorkspace, gw *gateway.Gateway) (<-chan error, func()) {
+	var wg sync.WaitGroup
+	wait := func() { wg.Wait() }
 	if len(workspaces) > 0 {
 		errCh := make(chan error, len(workspaces))
 		for _, workspace := range workspaces {
@@ -148,7 +154,9 @@ func startSlackIfConfigured(ctx context.Context, workspaces []config.SlackWorksp
 			}
 			client := slackrecv.NewSocketModeClient(appToken, botToken)
 			sink := workspaceSink{name: workspace.Name, sink: gw}
+			wg.Add(1)
 			go func(workspace string, client slackrecv.SocketClient, sink workspaceSink) {
+				defer wg.Done()
 				log.Printf("stage=start source=slack workspace=%s result=enabled mode=socket", workspace)
 				if err := slackrecv.RunSocketMode(ctx, client, sink); err != nil {
 					log.Printf("stage=socket source=slack workspace=%s result=error error=%q", workspace, err)
@@ -156,24 +164,26 @@ func startSlackIfConfigured(ctx context.Context, workspaces []config.SlackWorksp
 				}
 			}(workspace.Name, client, sink)
 		}
-		return errCh
+		return errCh, wait
 	}
 	errCh := make(chan error, 1)
 	appToken := os.Getenv("SLACK_APP_TOKEN")
 	botToken := os.Getenv("SLACK_BOT_TOKEN")
 	if appToken == "" || botToken == "" {
 		log.Printf("stage=start source=slack result=disabled reason=missing_tokens")
-		return nil
+		return nil, wait
 	}
 	client := slackrecv.NewSocketModeClient(appToken, botToken)
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		log.Printf("stage=start source=slack result=enabled mode=socket")
 		if err := slackrecv.RunSocketMode(ctx, client, gw); err != nil {
 			log.Printf("stage=socket source=slack result=error error=%q", err)
 			errCh <- fmt.Errorf("slack: %w", err)
 		}
 	}()
-	return errCh
+	return errCh, wait
 }
 
 func processSlackEnvelope(ctx context.Context, path, workspace string, gw *gateway.Gateway) error {

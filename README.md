@@ -4,6 +4,12 @@
 
 ## Quick Start
 
+Install the latest release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mrchypark/relaker/main/scripts/install.sh | sh
+```
+
 ```sh
 cp config/relaker.example.yaml config/relaker.yaml
 export RELAKER_GITHUB_WORK_SECRET='local-dev-secret'

@@ -1,0 +1,37 @@
+addr: "127.0.0.1:8080"
+github:
+  receivers:
+    - name: work
+      path: /github/work
+      secret_env: RELAKER_GITHUB_WORK_SECRET
+      # For unsigned local-only testing, remove secret_env and set:
+      # allow_unsigned: true
+slack:
+  workspaces:
+    - name: work
+      app_token_env: SLACK_WORK_APP_TOKEN
+      bot_token_env: SLACK_WORK_BOT_TOKEN
+
+rules:
+  - source: github
+    receiver: work
+    event: pull_request
+    actions: [opened, synchronize, reopened]
+    repo: my-org/my-repo
+    base_ref: main
+    labels_any: [ready-for-relaker]
+    run: scripts/on-pr.sh
+
+  - source: github
+    receiver: work
+    event: issues
+    actions: [opened]
+    repo: my-org/my-repo
+    run: scripts/on-issue.sh
+
+  - source: slack
+    workspace: work
+    event: app_mention
+    channel: C0123456789
+    text_regex: "^deploy staging"
+    run: scripts/deploy-staging.sh

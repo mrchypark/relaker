@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+org="${1:-Conalog}"
+url="${RELAKER_GITHUB_URL:-http://127.0.0.1:8080/github/conalog}"
+limit="${RELAKER_GITHUB_REPO_LIMIT:-500}"
+secret="${RELAKER_GITHUB_FORWARD_SECRET:-${RELAKER_GITHUB_CONALOG_SECRET:-}}"
+pids=""
+
+cleanup() {
+  if [ -n "$pids" ]; then
+    for pid in $pids; do
+      kill "$pid" 2>/dev/null || true
+    done
+  fi
+}
+trap cleanup INT TERM EXIT
+
+repos=$(
+  gh repo list "$org" --limit "$limit" \
+    --json nameWithOwner,hasIssuesEnabled,viewerPermission \
+    --jq '.[] | select(.hasIssuesEnabled and .viewerPermission != "READ") | .nameWithOwner'
+)
+
+if [ -z "$repos" ]; then
+  echo "no writable issue-enabled repos found for $org" >&2
+  exit 1
+fi
+
+for repo in $repos; do
+	echo "forwarding $repo -> $url"
+	if [ -n "$secret" ]; then
+		gh webhook forward --repo="$repo" --events=issues --secret "$secret" --url="$url" &
+	else
+		gh webhook forward --repo="$repo" --events=issues --url="$url" &
+	fi
+	pids="$pids $!"
+done
+
+wait

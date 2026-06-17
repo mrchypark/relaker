@@ -17,6 +17,9 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# GoReleaser artifacts
+dist/
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
@@ -26,6 +29,7 @@ go.work.sum
 
 # env file
 .env
+config/relaker.yaml
 
 # Editor/IDE
 # .idea/

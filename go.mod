@@ -1,9 +1,9 @@
 module github.com/mrchypark/relaker
 
-go 1.23
+go 1.25
 
 require (
-	github.com/slack-go/slack v0.17.3
+	github.com/slack-go/slack v0.23.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -21,22 +22,34 @@ import (
 	slackrecv "github.com/mrchypark/relaker/internal/slack"
 )
 
+var version = "dev"
+
 func main() {
 	var configPath string
 	var addr string
 	var root string
 	var slackEnvelopePath string
 	var slackWorkspace string
+	var showVersion bool
 	flag.StringVar(&configPath, "config", "config/relaker.yaml", "YAML config path")
 	flag.StringVar(&addr, "addr", "", "listen address override")
 	flag.StringVar(&root, "root", ".", "root directory for allowlisted scripts")
 	flag.StringVar(&slackEnvelopePath, "slack-envelope", "", "process one local Slack Socket Mode envelope JSON file and exit")
 	flag.StringVar(&slackWorkspace, "slack-workspace", "", "workspace name for -slack-envelope")
+	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
 
+	if showVersion {
+		printVersion(os.Stdout)
+		return
+	}
 	if err := run(configPath, addr, root, slackEnvelopePath, slackWorkspace); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func printVersion(w io.Writer) {
+	fmt.Fprintf(w, "relaker %s\n", version)
 }
 
 func run(configPath, addrOverride, root, slackEnvelopePath, slackWorkspace string) error {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -15,6 +16,19 @@ import (
 	"github.com/mrchypark/relaker/internal/rules"
 	"github.com/mrchypark/relaker/internal/runner"
 )
+
+func TestPrintVersion(t *testing.T) {
+	oldVersion := version
+	version = "v1.2.3"
+	defer func() { version = oldVersion }()
+
+	var out bytes.Buffer
+	printVersion(&out)
+
+	if got := out.String(); got != "relaker v1.2.3\n" {
+		t.Fatalf("version output = %q", got)
+	}
+}
 
 type captureMainSink struct {
 	event rules.Event
